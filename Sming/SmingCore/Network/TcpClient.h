@@ -15,13 +15,13 @@ class TcpClient;
 class MemoryDataStream;
 class IPAddress;
 
-//typedef void (*TcpClientEventCallback)(TcpClient& client, TcpConnectionEvent sourceEvent);
-//typedef void (*TcpClientBoolCallback)(TcpClient& client, bool successful);
-//typedef bool (*TcpClientDataCallback)(TcpClient& client, char *data, int size);
+//typedef void (*TcpClientEventDelegate)(TcpClient& client, TcpConnectionEvent sourceEvent);
+//typedef void (*TcpClientBoolDelegate)(TcpClient& client, bool successful);
+//typedef bool (*TcpClientDataDelegate)(TcpClient& client, char *data, int size);
 
-typedef Delegate<void(TcpClient& client, TcpConnectionEvent sourceEvent)> TcpClientEventCallback;
-typedef Delegate<void(TcpClient& client, bool successful)> TcpClientBoolCallback;
-typedef Delegate<bool(TcpClient& client, char *data, int size)> TcpClientDataCallback;
+typedef Delegate<void(TcpClient& client, TcpConnectionEvent sourceEvent)> TcpClientEventDelegate;
+typedef Delegate<void(TcpClient& client, bool successful)> TcpClientCompleteDelegate;
+typedef Delegate<bool(TcpClient& client, char *data, int size)> TcpClientDataDelegate;
 
 enum TcpClientState
 {
@@ -36,10 +36,10 @@ class TcpClient : public TcpConnection
 {
 public:
 	TcpClient(bool autoDestruct);
-	TcpClient(tcp_pcb *clientTcp, TcpClientDataCallback clientReceive, bool autoDestruct);
-	TcpClient(TcpClientBoolCallback onCompleted, TcpClientEventCallback onReadyToSend, TcpClientDataCallback onReceive = NULL);
-	TcpClient(TcpClientBoolCallback onCompleted, TcpClientDataCallback onReceive = NULL);
-	TcpClient(TcpClientDataCallback onReceive);
+	TcpClient(tcp_pcb *clientTcp, TcpClientDataDelegate clientReceive, TcpClientCompleteDelegate onCompleted);
+	TcpClient(TcpClientCompleteDelegate onCompleted, TcpClientEventDelegate onReadyToSend, TcpClientDataDelegate onReceive = NULL);
+	TcpClient(TcpClientCompleteDelegate onCompleted, TcpClientDataDelegate onReceive = NULL);
+	TcpClient(TcpClientDataDelegate onReceive);
 	virtual ~TcpClient();
 
 public:
@@ -64,13 +64,13 @@ protected:
 
 private:
 	TcpClientState state;
-	TcpClientBoolCallback completed;
-	TcpClientDataCallback receive;
-	TcpClientEventCallback ready;
-	MemoryDataStream* stream;
-	bool asyncCloseAfterSent;
-	int16_t asyncTotalSent;
-	int16_t asyncTotalLen;
+	TcpClientCompleteDelegate completed = nullptr;
+	TcpClientDataDelegate receive = nullptr;
+	TcpClientEventDelegate ready = nullptr;
+	MemoryDataStream* stream = nullptr;
+	bool asyncCloseAfterSent = false;
+	int16_t asyncTotalSent = 0;
+	int16_t asyncTotalLen = 0;
 };
 
 #endif /* _SMING_CORE_TCPCLIENT_H_ */

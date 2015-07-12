@@ -6,7 +6,25 @@
 #
 #############################################################
 
-## Defaults
+### Defaults ###
+
+## COM port parameters
+# Default COM port speed (generic)
+COM_SPEED ?= 115200
+
+# Default COM port speed (used for flashing)
+COM_SPEED_ESPTOOL ?= $(COM_SPEED)
+
+# Default COM port speed (used in code)
+COM_SPEED_SERIAL  ?= $(COM_SPEED)
+
+## Flash parameters
+# SPI_SPEED = 40, 26, 20, 80
+SPI_SPEED ?= 40
+# SPI_MODE: qio, qout, dio, dout
+SPI_MODE ?= qio
+# SPI_SIZE: 512K, 256K, 1M, 2M, 4M
+SPI_SIZE ?= 512K
 
 ## ESP_HOME sets the path where ESP tools and SDK are located.
 ## Windows:
@@ -28,10 +46,6 @@
 
 # MacOS / Linux:
 # COM_PORT = /dev/tty.usbserial
-
-# Com port default speed
-COM_SPEED ?= 230400
-
 
 ifeq ($(OS),Windows_NT)
   # Windows detected
@@ -72,31 +86,42 @@ else
       ESP_HOME ?= /opt/esp-open-sdk
       include $(SMING_HOME)/Makefile-linux.mk     
   endif
+  ifeq ($(UNAME),FreeBSD)
+      # Freebsd Detected
+      UNAME := FreeBSD
+
+      # Default SMING_HOME. Can be overriden.
+      SMING_HOME ?= /usr/local/esp8266/Sming/Sming
+
+      # Default ESP_HOME. Can be overriden.
+      ESP_HOME ?= /usr/local/esp8266/esp-open-sdk
+      include $(SMING_HOME)/Makefile-bsd.mk     
+  endif
 endif
 
 export COMPILE := gcc
-export PATH := "$(ESP_HOME)/xtensa-lx106-elf/bin:$(PATH)"
+export PATH := $(ESP_HOME)/xtensa-lx106-elf/bin:$(PATH)
 XTENSA_TOOLS_ROOT := $(ESP_HOME)/xtensa-lx106-elf/bin
-
-# Sming Framework Path
-SMF = $(SMING_HOME)
 
 SPIFF_FILES = files
 
 BUILD_BASE	= out/build
 FW_BASE		= out/firmware
 
-#$(eval fw_start_offset := $(shell printf '0x%X\n' $$( $(GET_FILESIZE) $(FW_BASE)/eagle.flash.bin )))
-#$(eval spiff_start_offset := $(shell printf '0x%X\n' $$(( ($$($(GET_FILESIZE) $(FW_BASE)/eagle.irom0text.bin) + 16384 + 36864) & (0xFFFFC000) )) ))
-FW_START_OFFSET = $(shell printf '0x%X\n' $$( $(GET_FILESIZE) $(FW_BASE)/eagle.flash.bin ))
-SPIFF_START_OFFSET = $(shell printf '0x%X\n' $$(( ($$($(GET_FILESIZE) $(FW_BASE)/eagle.irom0text.bin) + 16384 + 36864) & (0xFFFFC000) )) )
+SPIFF_START_OFFSET = $(shell printf '0x%X\n' $$(( ($$($(GET_FILESIZE) $(FW_BASE)/0x09000.bin) + 16384 + 36864) & (0xFFFFC000) )) )
 
-	
+#Firmware memory layout info files
+FW_MEMINFO_NEW = $(FW_BASE)/fwMeminfo.new
+FW_MEMINFO_OLD = $(FW_BASE)/fwMeminfo.old
+FW_MEMINFO_SAVED = out/fwMeminfo
+
 # name for the target project
 TARGET		= app
 
 # which modules (subdirectories) of the project to include in compiling
-MODULES		?= $(SMING_HOME)/appinit app
+# define your custom directories in the project's own Makefile before including this one
+MODULES 	?= app  # if not initialized by user 
+MODULES		+= $(SMING_HOME)/appinit
 EXTRA_INCDIR    ?= include $(SMING_HOME)/include $(SMING_HOME)/ $(SMING_HOME)/system/include $(SMING_HOME)/Wiring $(SMING_HOME)/Libraries $(SMING_HOME)/SmingCore $(SDK_BASE)/../include
 
 # libraries used in this project, mainly provided by the SDK
@@ -107,12 +132,12 @@ LIBS		= microc microgcc hal phy pp net80211 lwip wpa main sming $(EXTRA_LIBS)
 CFLAGS		= -Os -g -Wpointer-arith -Wundef -Werror -Wl,-EL -nostdlib -mlongcalls -mtext-section-literals -finline-functions -fdata-sections -ffunction-sections -D__ets__ -DICACHE_FLASH -DARDUINO=106
 CXXFLAGS	= $(CFLAGS) -fno-rtti -fno-exceptions -std=c++11 -felide-constructors
 
-# trying to use global WiFi settings from Eclipse Environment Variables
+# we will use global WiFi settings from Eclipse Environment Variables, if possible
 WIFI_SSID ?= ""
+WIFI_PWD ?= ""
 ifneq ($(WIFI_SSID), "")
 	CFLAGS += -DWIFI_SSID=\"$(WIFI_SSID)\"
 endif
-WIFI_PWD ?= ""
 ifneq ($(WIFI_PWD), "")
 	CFLAGS += -DWIFI_PWD=\"$(WIFI_PWD)\"
 endif
@@ -124,127 +149,57 @@ LDFLAGS		= -nostdlib -u call_user_start -Wl,-static -Wl,--gc-sections
 LD_PATH     = $(SMING_HOME)/compiler/ld/
 LD_SCRIPT	= $(LD_PATH)eagle.app.v6.cpp.ld
 
-# BOOT = none
-# BOOT = old - boot_v1.1
-# BOOT = new - boot_v1.2+
-BOOT?=none
-# APP = 0 - eagle.flash.bin + eagle.irom0text.bin
-# APP = 1 - user1.bin
-# APP = 2 - user2.bin
-APP?=0
-# SPI_SPEED = 20MHz, 26.7MHz, 40MHz, 80MHz
-SPI_SPEED?=40
-# SPI_MODE: QIO, QOUT, DIO, DOUT
-SPI_MODE?=QIO
-# SPI_SIZE: 256KB, 512KB, 1024KB, 2048KB, 4096KB
-SPI_SIZE?=512
-
-ifeq ($(BOOT), new)
-    boot = new
-else
-    ifeq ($(BOOT), old)
-        boot = old
-    else
-        boot = none
-    endif
-endif
-
-ifeq ($(APP), 1)
-    app = 1
-else
-    ifeq ($(APP), 2)
-        app = 2
-    else
-        app = 0
-    endif
-endif
-
-ifeq ($(SPI_SPEED), 26.7)
-    freqdiv = 1
+ifeq ($(SPI_SPEED), 26)
+	flashimageoptions = -ff 26m
 else
     ifeq ($(SPI_SPEED), 20)
-        freqdiv = 2
+        flashimageoptions = -ff 20m
     else
         ifeq ($(SPI_SPEED), 80)
-            freqdiv = 15
+		flashimageoptions = -ff 80m
         else
-            freqdiv = 0
+		flashimageoptions = -ff 40m
         endif
     endif
 endif
 
-
-ifeq ($(SPI_MODE), QOUT)
-    mode = 1
+ifeq ($(SPI_MODE), qout)
+	flashimageoptions += -fm qout
 else
-    ifeq ($(SPI_MODE), DIO)
-        mode = 2
+    ifeq ($(SPI_MODE), dio)
+	flashimageoptions += -fm dio
     else
-        ifeq ($(SPI_MODE), DOUT)
-            mode = 3
+        ifeq ($(SPI_MODE), dout)
+		flashimageoptions += -fm dout
         else
-            mode = 0
+		flashimageoptions += -fm qio
         endif
     endif
 endif
 
 # flash larger than 1024KB only use 1024KB to storage user1.bin and user2.bin
-ifeq ($(SPI_SIZE), 256)
-    size = 1
-    flash = 256
+ifeq ($(SPI_SIZE), 256K)
+	flashimageoptions += -fs 2m
 else
-    ifeq ($(SPI_SIZE), 1024)
-        size = 2
-        flash = 1024
+    ifeq ($(SPI_SIZE), 1M)
+	flashimageoptions += -fs 8m
     else
-        ifeq ($(SPI_SIZE), 2048)
-            size = 3
-            flash = 1024
+        ifeq ($(SPI_SIZE), 2M)
+		flashimageoptions += -fs 16m
         else
-            ifeq ($(SPI_SIZE), 4096)
-                size = 4
-                flash = 1024
+            ifeq ($(SPI_SIZE), 4M)
+			flashimageoptions += -fs 32m
             else
-                size = 0
-                flash = 512
+			flashimageoptions += -fs 4m
             endif
         endif
     endif
 endif
 
-ifeq ($(flash), 512)
-  ifeq ($(app), 1)
-    addr = 0x01000
-  else
-    ifeq ($(app), 2)
-      addr = 0x41000
-    endif
-  endif
-else
-  ifeq ($(flash), 1024)
-    ifeq ($(app), 1)
-      addr = 0x01000
-    else
-      ifeq ($(app), 2)
-        addr = 0x81000
-      endif
-    endif
-  endif
-endif
-
-ifneq ($(boot), none)
-ifneq ($(app),0)
-	LD_SCRIPT = $(LD_PATH)eagle.app.v6.$(boot).$(flash).app$(app).cpp.ld
-	BIN_NAME = user$(app).$(flash).$(boot)
-endif
-else
-    app = 0
-endif
-
 # various paths from the SDK used in this project
 SDK_LIBDIR	= lib
 SDK_LDDIR	= ld
-SDK_INCDIR	= include include/json
+SDK_INCDIR	= include
 
 # select which tools to use as compiler, librarian and linker
 CC		:= $(XTENSA_TOOLS_ROOT)/xtensa-lx106-elf-gcc
@@ -270,7 +225,6 @@ APP_AR		:= $(addprefix $(BUILD_BASE)/,$(TARGET)_app.a)
 TARGET_OUT	:= $(addprefix $(BUILD_BASE)/,$(TARGET).out)
 
 SPIFF_BIN_OUT := $(FW_BASE)/spiff_rom.bin
-#LD_SCRIPT	:= $(addprefix -T$(SDK_BASE)/$(SDK_LDDIR)/,$(LD_SCRIPT))
 LD_SCRIPT	:= $(addprefix -T,$(LD_SCRIPT))
 
 INCDIR	:= $(addprefix -I,$(SRC_DIR))
@@ -302,48 +256,32 @@ endef
 
 all: checkdirs $(TARGET_OUT) $(SPIFF_BIN_OUT) $(FW_FILE_1) $(FW_FILE_2)
 
-spiff_update: spiff_clean $(SPIFF_BIN_OUT)	
+spiff_update: spiff_clean $(SPIFF_BIN_OUT)
+
 $(TARGET_OUT): $(APP_AR)
 	$(vecho) "LD $@"	
 	$(Q) $(LD) -L$(USER_LIBDIR) -L$(SDK_LIBDIR) $(LD_SCRIPT) $(LDFLAGS) -Wl,--start-group $(LIBS) $(APP_AR) -Wl,--end-group -o $@
-	$(vecho) "Running objcopy, please wait..."	
-	$(Q) $(OBJCOPY) --only-section .text -O binary $@ eagle.app.v6.text.bin
-	$(Q) $(OBJCOPY) --only-section .data -O binary $@ eagle.app.v6.data.bin
-	$(Q) $(OBJCOPY) --only-section .rodata -O binary $@ eagle.app.v6.rodata.bin
-	$(Q) $(OBJCOPY) --only-section .irom0.text -O binary $@ eagle.app.v6.irom0text.bin
-	$(vecho) "Objcopy done"
-	$(vecho) "Run gen_appbin"
-ifeq ($(app), 0)
-	$(Q) $(GEN_APPBIN) $@ 0 $(mode) $(freqdiv) $(size)
-	$(Q) mv eagle.app.flash.bin $(FW_BASE)/eagle.flash.bin
-	$(Q) mv eagle.app.v6.irom0text.bin $(FW_BASE)/eagle.irom0text.bin
-#	$(vecho) "Adding init with 0x9000 offset"
-#	$(Q) srec_cat -output $(FW_BASE)/eagle.irom0text.fs.bin -binary $(FW_BASE)/eagle.flash.bin -binary -fill 0xff 0x00000 0x9000 $(FW_BASE)/eagle.irom0text.bin -binary -offset 0x9000 > srec_cat.log
 	
-#	$(Q) cat $(FW_BASE)/eagle.irom0text.bin $(SMING_HOME)/compiler/data/blankfs.bin > $(FW_BASE)/eagle.irom0text.fs.bin
+	$(vecho) ""	
+	$(vecho) "#Memory / Section info:"	
+	$(vecho) "------------------------------------------------------------------------------"
+#Check for existing old meminfo file and move it to /out/firmware as the infofile from previous build
+	$(Q) if [ -f "$(FW_MEMINFO_SAVED)" ]; then \
+	  mv $(FW_MEMINFO_SAVED) $(FW_MEMINFO_OLD); \
+	fi
+	
+	$(Q) $(MEMANALYZER) $@ > $(FW_MEMINFO_NEW)
+	
+	$(Q) if [[ -f "$(FW_MEMINFO_NEW)" && -f "$(FW_MEMINFO_OLD)" ]]; then \
+	  awk -F "|" 'FILENAME == "$(FW_MEMINFO_OLD)" { arr[$$1]=$$5 } FILENAME == "$(FW_MEMINFO_NEW)" { if (arr[$$1] != $$5){printf "%s%s%+d%s", substr($$0, 1, length($$0) - 1)," (",$$5 - arr[$$1],")\n" } else {print $$0} }' $(FW_MEMINFO_OLD) $(FW_MEMINFO_NEW); \
+	elif [ -f "$(FW_MEMINFO_NEW)" ]; then \
+	  cat $(FW_MEMINFO_NEW); \
+	fi
 
-	$(Q) rm eagle.app.v6.*
-#	$(vecho) "Firmware offset: $(FW_START_OFFSET)"
-#	$(vecho) "Spiffs offset: $(SPIFF_START_OFFSET)"
-
-	$(vecho) "No boot needed."
-	$(vecho) "Generate eagle.flash.bin and eagle.irom0text.bin successully in folder $(FW_BASE)."
-	$(vecho) "eagle.flash.bin-------->0x00000"
-	$(vecho) "eagle.irom0text.bin---->0x9000"
-else
-    ifeq ($(boot), new)
-		$(Q) $(GEN_APPBIN) $@ 2 $(mode) $(freqdiv) $(size)
-		$(vecho) "Support boot_v1.2 and +"
-    else
-		$(Q) $(GEN_APPBIN) $@ 1 $(mode) $(freqdiv) $(size)
-		$(vecho) "Support boot_v1.1 and +"
-    endif
-	$(Q) mv eagle.app.flash.bin $(FW_BASE)/upgrade/$(BIN_NAME).bin
-	$(Q) rm eagle.app.v6.*
-	$(vecho) "Generate $(BIN_NAME).bin successully in folder $(FW_BASE)/upgrade."
-	$(vecho) "boot_v1.x.bin------->0x00000"
-	$(vecho) "$(BIN_NAME).bin--->$(addr)"
-endif
+	$(vecho) "------------------------------------------------------------------------------"
+	$(vecho) "# Generating image..."
+	$(Q) $(ESPTOOL) elf2image $@ $(flashimageoptions) -o $(FW_BASE)/
+	$(vecho) "Generate firmware images successully in folder $(FW_BASE)."
 	$(vecho) "Done"
 
 $(APP_AR): $(OBJ)
@@ -357,35 +295,13 @@ $(BUILD_DIR):
 
 $(FW_BASE):
 	$(Q) mkdir -p $@
-	$(Q) mkdir -p $@/upgrade
-
-# flashonefile: all
-# 	$(OBJCOPY) --only-section .text -O binary $(TARGET_OUT) eagle.app.v6.text.bin
-# 	$(OBJCOPY) --only-section .data -O binary $(TARGET_OUT) eagle.app.v6.data.bin
-# 	$(OBJCOPY) --only-section .rodata -O binary $(TARGET_OUT) eagle.app.v6.rodata.bin
-# 	$(OBJCOPY) --only-section .irom0.text -O binary $(TARGET_OUT) eagle.app.v6.irom0text.bin
-# 	$(GEN_APPBIN) $(TARGET_OUT) v6
-# 	$(GEN_FLASHBIN) eagle.app.v6.flash.bin eagle.app.v6.irom0text.bin 0x9000
-# 	rm -f eagle.app.v6.data.bin
-# 	rm -f eagle.app.v6.flash.bin
-# 	rm -f eagle.app.v6.irom0text.bin
-# 	rm -f eagle.app.v6.rodata.bin
-# 	rm -f eagle.app.v6.text.bin
-# 	rm -f eagle.app.sym
-# 	mv eagle.app.flash.bin $(FW_BASE)/
-# 	$(vecho) "No boot needed."
-# 	$(vecho) "Generate eagle.app.flash.bin successully in folder $(FW_BASE)."
-# 	$(vecho) "eagle.app.flash.bin-------->0x00000"
-# 	$(ESPTOOL) -p $(COM_PORT) -b $(COM_SPEED) write_flash 0x00000 $(FW_BASE)/eagle.app.flash.bin
-
-
 
 spiff_clean: 
 	$(vecho) "Cleaning $(SPIFF_BIN_OUT)"
 	$(Q) rm -rf $(SPIFF_BIN_OUT)
 
 $(SPIFF_BIN_OUT):
-# Generating spiffs_bin
+	# Generating spiffs_bin
 	$(vecho) "Checking for spiffs files"
 	$(Q) if [ -d "$(SPIFF_FILES)" ]; then \
     	echo "$(SPIFF_FILES) directory exists. Creating spiff_rom.bin"; \
@@ -398,38 +314,24 @@ $(SPIFF_BIN_OUT):
 	fi
 	$(vecho) "spiff_rom.bin---------->$(SPIFF_START_OFFSET)"
 
-flashboot: all flashinit
-ifeq ($(boot), new)
-	$(vecho) "Flash boot_v1.2 and +"
-	$(ESPTOOL) -p $(COM_PORT) -b $(COM_SPEED) write_flash 0x00000 $(SDK_BASE)/bin/boot_v1.2.bin
-endif
-ifeq ($(boot), old)
-	$(vecho) "Flash boot_v1.1 and +"
-	$(ESPTOOL) -p $(COM_PORT) -b $(COM_SPEED) write_flash 0x00000 $(SDK_BASE)/bin/boot_v1.1.bin
-endif
-ifeq ($(boot), none)
-	$(vecho) "No boot needed."
-endif
-
 flash: all
-ifeq ($(app), 0)	
-#	$(Q) $(KILL_TERM)
-	$(ESPTOOL) -p $(COM_PORT) -b $(COM_SPEED) write_flash 0x00000 $(FW_BASE)/eagle.flash.bin 0x9000 $(FW_BASE)/eagle.irom0text.bin $(SPIFF_START_OFFSET) $(FW_BASE)/spiff_rom.bin
-else
-ifeq ($(boot), none)
-	$(ESPTOOL) -p $(COM_PORT) -b $(COM_SPEED) write_flash 0x00000 $(FW_BASE)/eagle.flash.bin 0x9000 $(FW_BASE)/eagle.irom0text.bin
-else
-	$(ESPTOOL) -p $(COM_PORT) -b $(COM_SPEED) write_flash $(addr) $(FW_BASE)/upgrade/$(BIN_NAME).bin
-endif
-endif
+	$(vecho) "Killing Terminal to free $(COM_PORT)"
+	-$(Q) $(KILL_TERM)
+	$(ESPTOOL) -p $(COM_PORT) -b $(COM_SPEED_ESPTOOL) write_flash $(flashimageoptions) 0x00000 $(FW_BASE)/0x00000.bin 0x09000 $(FW_BASE)/0x09000.bin $(SPIFF_START_OFFSET) $(FW_BASE)/spiff_rom.bin
+	$(TERMINAL)
 
 flashinit:
 	$(vecho) "Flash init data default and blank data."
-	$(ESPTOOL) -p $(COM_PORT) write_flash 0x4B000 $(SMF)/compiler/data/blankfs.bin 0x7c000 $(SDK_BASE)/bin/esp_init_data_default.bin 0x7e000 $(SDK_BASE)/bin/blank.bin
+	$(ESPTOOL) -p $(COM_PORT) -b $(COM_SPEED_ESPTOOL) write_flash $(flashimageoptions) 0x7c000 $(SDK_BASE)/bin/esp_init_data_default.bin 0x7e000 $(SDK_BASE)/bin/blank.bin 0x4B000 $(SMING_HOME)/compiler/data/blankfs.bin
 
 rebuild: clean all
 
 clean:
+#preserve meminfo file from /out/firmware to /out/
+	$(Q) if [ -f "$(FW_MEMINFO_NEW)" ]; then \
+		mv $(FW_MEMINFO_NEW) $(FW_MEMINFO_SAVED); \
+	fi
+#remove build artifacts
 	$(Q) rm -f $(APP_AR)
 	$(Q) rm -f $(TARGET_OUT)
 	$(Q) rm -rf $(BUILD_DIR)

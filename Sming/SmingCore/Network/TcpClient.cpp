@@ -10,47 +10,38 @@
 #include "../../SmingCore/DataSourceStream.h"
 #include "../../Wiring/WString.h"
 
-TcpClient::TcpClient(tcp_pcb *clientTcp, TcpClientDataCallback clientReceive, bool autoDestruct )
-: TcpConnection(clientTcp, autoDestruct), state(eTCS_Connected), asyncTotalSent(0), asyncTotalLen(0)
+TcpClient::TcpClient(tcp_pcb *clientTcp, TcpClientDataDelegate clientReceive, TcpClientCompleteDelegate onCompleted)
+: TcpConnection(clientTcp, true), state(eTCS_Connected)
 {
-	completed = NULL;
-	ready = NULL;
+	completed = onCompleted;
 	receive = clientReceive;
-	stream = NULL;
 }
 
 TcpClient::TcpClient(bool autoDestruct)
-	: TcpConnection(autoDestruct), state(eTCS_Ready), asyncTotalSent(0), asyncTotalLen(0), asyncCloseAfterSent(false)
+	: TcpConnection(autoDestruct), state(eTCS_Ready)
 {
-	completed = NULL;
-	ready = NULL;
-	receive = NULL;
-	stream = NULL;
 }
 
-TcpClient::TcpClient(TcpClientBoolCallback onCompleted, TcpClientEventCallback onReadyToSend /* = NULL*/, TcpClientDataCallback onReceive /* = NULL*/)
-	: TcpConnection(false), state(eTCS_Ready), asyncTotalSent(0), asyncTotalLen(0), asyncCloseAfterSent(false)
+TcpClient::TcpClient(TcpClientCompleteDelegate onCompleted, TcpClientEventDelegate onReadyToSend /* = NULL*/, TcpClientDataDelegate onReceive /* = NULL*/)
+	: TcpConnection(false), state(eTCS_Ready)
 {
 	completed = onCompleted;
 	ready = onReadyToSend;
 	receive = onReceive;
-	stream = NULL;
 }
 
-TcpClient::TcpClient(TcpClientBoolCallback onCompleted, TcpClientDataCallback onReceive /* = NULL*/)
-	: TcpConnection(false), state(eTCS_Ready), ready(NULL), asyncTotalSent(0), asyncTotalLen(0), asyncCloseAfterSent(false)
+TcpClient::TcpClient(TcpClientCompleteDelegate onCompleted, TcpClientDataDelegate onReceive /* = NULL*/)
+	: TcpConnection(false), state(eTCS_Ready)
 {
 	completed = onCompleted;
 	receive = onReceive;
-	stream = NULL;
 }
 
 
-TcpClient::TcpClient(TcpClientDataCallback onReceive)
-	: TcpConnection(false), state(eTCS_Ready), ready(NULL), completed(NULL), asyncTotalSent(0), asyncTotalLen(0), asyncCloseAfterSent(false)
+TcpClient::TcpClient(TcpClientDataDelegate onReceive)
+	: TcpConnection(false), state(eTCS_Ready)
 {
 	receive = onReceive;
-	stream = NULL;
 }
 
 TcpClient::~TcpClient()
